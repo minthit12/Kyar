@@ -25,7 +25,7 @@
         .btn-restart { background: #27ae60; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; margin-top: 15px; width: 80%; max-width: 300px; }
         .btn-restart:hover { background: #219a52; }
         
-        /* Online Lobby UI Styles */
+        /* Lobby UI Panel */
         .lobby-panel { background: #2c3e50; padding: 15px; border-radius: 8px; max-width: 340px; margin: 15px auto; border: 1px solid #34495e; }
         .lobby-btn { background: #2980b9; color: white; border: none; padding: 10px 15px; margin: 5px; font-size: 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .lobby-btn:hover { background: #3498db; }
@@ -53,9 +53,9 @@
     <button class="btn-restart" id="restartBtn" onclick="resetOnlineGame()" style="display:none;">🔄 ပွဲသစ်ပြန်စမည်</button>
 
 <script>
-    // Firebase Test Server Connection
+    // အစ်ကို့ရဲ့ ကိုယ်ပိုင် Firebase URL အမှန်ကို ချိတ်ဆက်ပေးထားပါတယ်
     const firebaseConfig = {
-        databaseURL: "https://mm-checkers-default-rtdb.asia-southeast1.firebasedatabase.app/"
+        databaseURL: "https://myhomelist-6550a-default-rtdb.firebaseio.com/" 
     };
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
@@ -73,14 +73,12 @@
     let isMultiJumping = false; 
     let maximumPossibleJumps = 0;
 
-    // Online Multiplayer Variables
     let roomId = null;
-    let myColor = null; // 'R' (Host) သို့မဟုတ် 'B' (Joiner)
+    let myColor = null; 
 
-    // --- Lobby Online Functions ---
     function hostRoom() {
-        roomId = Math.floor(1000 + Math.random() * 9000); // 4-digit ID ဆောက်မယ်
-        myColor = 'R'; // Room ဆောက်သူက အနီ
+        roomId = Math.floor(1000 + Math.random() * 9000); 
+        myColor = 'R'; 
         lobbyPanel.innerHTML = `<h3>🏠 Room ID: <span style="color:#f1c40f;">${roomId}</span></h3><p>တစ်ဖက်လူကို ဒီ ID ပေးပြီး ဝင်ခိုင်းလိုက်ပါ...</p>`;
         
         initBoardStateOnly();
@@ -89,16 +87,18 @@
             turn: 'R',
             status: 'waiting',
             restartRequested: false
+        }).then(() => {
+            listenToRoom();
+        }).catch(err => {
+            alert("Room ဆောက်ရတာ အဆင်မပြေပါ။ Firebase Rules ကို Test Mode ပေးထားလား ပြန်စစ်ပါ။");
         });
-        
-        listenToRoom();
     }
 
     function joinRoom() {
         const inputId = document.getElementById('roomInput').value.trim();
         if(!inputId) { alert("Room ID ထည့်ပါဦးဗျာ။"); return; }
         roomId = inputId;
-        myColor = 'B'; // ဝင်ဆော့သူက အနက်
+        myColor = 'B'; 
 
         database.ref('rooms/' + roomId).once('value').then((snapshot) => {
             if(snapshot.exists()) {
@@ -169,7 +169,6 @@
         for (let r = 5; r < 8; r++) { for (let c = 0; c < 8; c++) { if ((r + c) % 2 === 0) boardState[r][c] = 'R'; } }
     }
 
-    // --- Core Game Logic ---
     function checkForForceJumps() {
         forceJumpsAvailable = [];
         maximumPossibleJumps = 0;
@@ -283,7 +282,7 @@
     }
 
     function handlePieceClick(row, col) {
-        if (!roomId || myColor !== turn) return; // အွန်လိုင်းမှာ ကိုယ့်အလှည့်မဟုတ်ရင် နှိပ်မရပါ
+        if (!roomId || myColor !== turn) return; 
         if (isMultiJumping) return; 
         if (!boardState[row][col].startsWith(turn)) return;
         
@@ -304,7 +303,76 @@
         if (isKing) {
             dirs.forEach(dir => {
                 let currR = row + dir.r; let currC = col + dir.c;
-                // variable spelling bug fixed here (currC >= 0 && currC < 8)
+                // variable condition logic fixed
                 while (currR >= 0 && currR < 8 && currC >= 0 && currC < 8) {
                     if (boardState[currR][currC] === null) moves.push({ toRow: currR, toCol: currC, type: 'move' }); else break;
-                    currR += dir.r
+                    currR += dir.r; currC += dir.c;
+                }
+            });
+        } else {
+            const allowedDirs = (turn === 'R') ? [{r:-1, c:-1}, {r:-1, c:1}] : [{r:1, c:-1}, {r:1, c:1}];
+            allowedDirs.forEach(dir => {
+                const nR = row + dir.r; const nC = col + dir.c;
+                if (nR >= 0 && nR < 8 && nC >= 0 && nC < 8 && boardState[nR][nC] === null) moves.push({ toRow: nR, toCol: nC, type: 'move' });
+            });
+        }
+        return moves;
+    }
+
+    function handleSquareClick(row, col) {
+        if (!roomId || myColor !== turn) return; 
+        if (!selectedPiece) return;
+        const move = validMoves.find(m => m.toRow === row && m.toCol === col);
+        if (move) {
+            let pieceType = boardState[selectedPiece.row][selectedPiece.col];
+            boardState[row][col] = pieceType;
+            boardState[selectedPiece.row][selectedPiece.col] = null;
+            if (move.type === 'jump') {
+                boardState[move.eatR][move.eatCol] = null;
+                if (turn === 'R' && row === 0 && pieceType === 'R') { boardState[row][col] = 'RK'; pieceType = 'RK'; }
+                if (turn === 'B' && row === 7 && pieceType === 'B') { boardState[row][col] = 'BK'; pieceType = 'BK'; }
+                const nextJumps = getPieceJumpsOnly(row, col);
+                if (nextJumps.length > 0) { 
+                    isMultiJumping = true; 
+                    selectedPiece = { row, col }; 
+                    validMoves = nextJumps; 
+                    renderBoard(); 
+                    syncDataToFirebase(); 
+                    return; 
+                }
+            }
+            if (turn === 'R' && row === 0 && pieceType === 'R') boardState[row][col] = 'RK';
+            if (turn === 'B' && row === 7 && pieceType === 'B') boardState[row][col] = 'BK';
+            isMultiJumping = false; 
+            turn = (turn === 'R') ? 'B' : 'R'; 
+            selectedPiece = null; 
+            validMoves = [];
+            
+            updateStatusText(); 
+            syncDataToFirebase(); 
+        } else { if (!isMultiJumping) { selectedPiece = null; validMoves = []; } }
+        renderBoard();
+    }
+
+    function updateStatusText() { 
+        let text = (turn === 'R' ? "🔴 အနီရောင်" : "⚫ အနက်ရောင်") + " အလှည့်";
+        if(myColor === turn) {
+            text += " (သင့်အလှည့်ဖြစ်သည်)";
+        } else {
+            text += " (တစ်ဖက်လူ ရွှေ့နေသည်)";
+        }
+        statusText.innerText = text; 
+    }
+    
+    function checkGameOver() {
+        let rCount = 0, bCount = 0;
+        for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) { if (boardState[r][c]?.startsWith('R')) rCount++; if (boardState[r][c]?.startsWith('B')) bCount++; } }
+        if (rCount === 0 && bCount > 0) { alert("🎉 ပွဲပြီးပါပြီ။ အနက်ရောင် အနိုင်ရရှိပါသည်။"); }
+        else if (bCount === 0 && rCount > 0) { alert("🎉 ပွဲပြီးပါပြီ။ အနီရောင် အနိုင်ရရှိပါသည်။"); }
+    }
+
+    initBoardStateOnly();
+    renderBoard();
+</script>
+</body>
+</html>
