@@ -53,7 +53,7 @@
     <button class="btn-restart" id="restartBtn" onclick="resetOnlineGame()" style="display:none;">🔄 ပွဲသစ်ပြန်စမည်</button>
 
 <script>
-    // အစ်ကို့ရဲ့ Firebase URL ကို စနစ်တကျ ပြန်ထည့်ပေးထားပါတယ်
+    // Firebase Setup 
     const firebaseConfig = {
         databaseURL: "https://myhomelist-6550a-default-rtdb.firebaseio.com/" 
     };
@@ -90,7 +90,7 @@
         }).then(() => {
             listenToRoom();
         }).catch(err => {
-            alert("Room ဆောက်ရတာ အဆင်မပြေပါ။ Firebase Settings ကို ပြန်စစ်ပါ။");
+            alert("Room ဆောက်မရပါ။");
         });
     }
 
@@ -102,18 +102,18 @@
 
         database.ref('rooms/' + roomId).once('value').then((snapshot) => {
             if(snapshot.exists()) {
-                database.ref('rooms/' + roomId).update({ status: 'playing' });
-                lobbyPanel.style.display = 'none';
-                restartBtn.style.display = 'inline-block';
-                listenToRoom();
+                database.ref('rooms/' + roomId).update({ status: 'playing' }).then(() => {
+                    lobbyPanel.style.display = 'none';
+                    restartBtn.style.display = 'inline-block';
+                    listenToRoom();
+                });
             } else {
                 alert("Room မရှိပါ သို့မဟုတ် ID မှားနေပါတယ်ဗျာ။");
             }
-        }).catch((err) => {
-            alert("ဆာဗာချိတ်ဆက်မှု အဆင်မပြေပါ။");
         });
     }
 
+    // ဖုန်းနှစ်လုံးကြား Real-time ဒေတာ အပြန်အလှန် စီးဆင်းစေမယ့် နေရာ
     function listenToRoom() {
         database.ref('rooms/' + roomId).on('value', (snapshot) => {
             const data = snapshot.val();
