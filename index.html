@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>မြန်မာ့ရိုးရာ ကျားထိုးဂိမ်း (Online Multiplayer)</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <style>
+        body { font-family: sans-serif; background: #1a252f; color: white; text-align: center; margin: 0; padding: 10px; user-select: none; }
+        h2 { margin: 10px 0 5px 0; font-size: 20px; }
+        .status-box { background: rgba(0,0,0,0.4); padding: 10px; border-radius: 5px; display: inline-block; margin-bottom: 15px; font-weight: bold; font-size: 16px; border: 1px solid #34495e; }
+        .board-container { width: 100%; max-width: 360px; margin: auto; }
+        .board { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 4px solid #2c3e50; background: #fbeee0; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
+        .square { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
+        .light { background: #fbeee0; } 
+        .dark { background: #b58863; }  
+        .piece { width: 80%; height: 80%; border-radius: 50%; box-shadow: inset 0 0 6px rgba(0,0,0,0.6), 0 2px 4px rgba(0,0,0,0.5); position: relative; display: flex; align-items: center; justify-content: center; font-size: 18px; cursor: pointer; }
+        .red-piece { background: #d35400; border: 2px solid #ba4a00; }
+        .black-piece { background: #2c3e50; border: 2px solid #1a252f; }
+        .selected { transform: scale(1.05); border: 2px solid #f1c40f !important; box-shadow: 0 0 8px #f1c40f; }
+        .suggested::after { content: ''; width: 30%; height: 30%; background: #2ecc71; border-radius: 50%; position: absolute; box-shadow: 0 0 4px #000; }
+        .btn-restart { background: #27ae60; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; margin-top: 15px; width: 80%; max-width: 300px; }
+        .btn-restart:hover { background: #219a52; }
+        
+        /* Online Lobby UI Styles */
+        .lobby-panel { background: #2c3e50; padding: 15px; border-radius: 8px; max-width: 340px; margin: 15px auto; border: 1px solid #34495e; }
+        .lobby-btn { background: #2980b9; color: white; border: none; padding: 10px 15px; margin: 5px; font-size: 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .lobby-btn:hover { background: #3498db; }
+        .lobby-input { padding: 8px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; width: 120px; text-align: center; color: black; }
+    </style>
+</head>
+<body>
+
+    <h2>🎮 မြန်မာ့ရိုးရာ ကျားထိုးဂိမ်း (Online)</h2>
+    
+    <div class="lobby-panel" id="lobbyPanel">
+        <h3 style="margin-top:0;">🌐 အွန်လိုင်းဆော့ကစားရန် ခန်းမ</h3>
+        <button class="lobby-btn" onclick="hostRoom()">🏠 Room အသစ်ဆောက်မည်</button>
+        <div style="margin: 10px 0;">(သို့မဟုတ်)</div>
+        <input type="text" id="roomInput" class="lobby-input" placeholder="Room ID ရိုက်ထည့်ပါ">
+        <button class="lobby-btn" style="background:#e67e22;" onclick="joinRoom()">🚪 ဝင်ဆော့မည်</button>
+    </div>
+
+    <div class="status-box" id="statusText">ကျေးဇူးပြု၍ Room ဆောက်ပါ သို့မဟုတ် ဝင်ဆော့ပါ</div>
+
+    <div class="board-container">
+        <div class="board" id="gameBoard"></div>
+    </div>
+
+    <button class="btn-restart" id="restartBtn" onclick="resetOnlineGame()" style="display:none;">🔄 ပွဲသစ်ပြန်စမည်</button>
+
+<script>
+    // Firebase Test Server Connection
+    const firebaseConfig = {
+        databaseURL: "https://mm-checkers-default-rtdb.asia-southeast1.firebasedatabase.app/"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+
+    const boardElement = document.getElementById('gameBoard');
+    const statusText = document.getElementById('statusText');
+    const lobbyPanel = document.getElementById('lobbyPanel');
+    const restartBtn = document.getElementById('restartBtn');
+    
+    let boardState = [];
+    let turn = 'R'; 
+    let selectedPiece = null;
+    let validMoves = [];
+    let forceJumpsAvailable = [];
+    let isMultiJumping = false; 
+    let maximumPossibleJumps = 0;
+
+    // Online Multiplayer Variables
+    let roomId = null;
+    let myColor = null; // 'R' (Host) သို့မဟုတ် 'B' (Joiner)
+
+    // --- Lobby Online Functions ---
+    function hostRoom() {
+        roomId = Math.floor(1000 + Math.random() * 9000); // 4-digit ID ဆောက်မယ်
+        myColor = 'R'; // Room ဆောက်သူက အနီ
+        lobbyPanel.innerHTML = `<h3>🏠 Room ID: <span style="color:#f1c40f;">${roomId}</span></h3><p>တစ်ဖက်လူကို ဒီ ID ပေးပြီး ဝင်ခိုင်းလိုက်ပါ...</p>`;
+        
+        initBoardStateOnly();
+        database.ref('rooms/' + roomId).set({
+            boardState: JSON.stringify(boardState),
+            turn: 'R',
+            status: 'waiting',
+            restartRequested: false
+        });
+        
+        listenToRoom();
+    }
+
+    function joinRoom() {
+        const inputId = document.getElementById('roomInput').value.trim();
+        if(!inputId) { alert("Room ID ထည့်ပါဦးဗျာ။"); return; }
+        roomId = inputId;
+        myColor = 'B'; // ဝင်ဆော့သူက အနက်
+
+        database.ref('rooms/' + roomId).once('value').then((snapshot) => {
+            if(snapshot.exists()) {
+                database.ref('rooms/' + roomId).update({ status: 'playing' });
+                lobbyPanel.style.display = 'none';
+                restartBtn.style.display = 'inline-block';
+                listenToRoom();
+            } else {
+                alert("Room မရှိပါ သို့မဟုတ် ID မှားနေပါတယ်ဗျာ။");
+            }
+        }).catch((err) => {
+            alert("ဆာဗာချိတ်ဆက်မှု အဆင်မပြေပါ။");
+        });
+    }
+
+    function listenToRoom() {
+        database.ref('rooms/' + roomId).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if(!data) return;
+
+            boardState = JSON.parse(data.boardState);
+            turn = data.turn;
+            
+            if(data.status === 'waiting') {
+                statusText.innerText = "⏳ ကစားဖော်ကို စောင့်ဆိုင်းနေပါသည်...";
+            } else {
+                lobbyPanel.style.display = 'none';
+                restartBtn.style.display = 'inline-block';
+                updateStatusText();
+            }
+
+            if(data.restartRequested === true) {
+                alert("တစ်ဖက်လူက ပွဲသစ်ပြန်စလိုက်ပါပြီ။");
+                database.ref('rooms/' + roomId).update({ restartRequested: false });
+            }
+
+            forceJumpsAvailable = [];
+            maximumPossibleJumps = 0;
+            if (!isMultiJumping) {
+                checkForForceJumps();
+            }
+            renderBoard();
+            checkGameOver();
+        });
+    }
+
+    function syncDataToFirebase() {
+        if(!roomId) return;
+        database.ref('rooms/' + roomId).update({
+            boardState: JSON.stringify(boardState),
+            turn: turn
+        });
+    }
+
+    function resetOnlineGame() {
+        if(!roomId) return;
+        initBoardStateOnly();
+        database.ref('rooms/' + roomId).update({
+            boardState: JSON.stringify(boardState),
+            turn: 'R',
+            restartRequested: true
+        });
+    }
+
+    function initBoardStateOnly() {
+        boardState = Array(8).fill(null).map(() => Array(8).fill(null));
+        for (let r = 0; r < 3; r++) { for (let c = 0; c < 8; c++) { if ((r + c) % 2 === 0) boardState[r][c] = 'B'; } }
+        for (let r = 5; r < 8; r++) { for (let c = 0; c < 8; c++) { if ((r + c) % 2 === 0) boardState[r][c] = 'R'; } }
+    }
+
+    // --- Core Game Logic ---
+    function checkForForceJumps() {
+        forceJumpsAvailable = [];
+        maximumPossibleJumps = 0;
+        if (isMultiJumping) return; 
+
+        let allJumpsFound = [];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const piece = boardState[r][c];
+                if (piece && piece.startsWith(turn)) {
+                    const jumps = getPieceJumpsOnly(r, c);
+                    if (jumps.length > 0) {
+                        jumps.forEach(j => {
+                            let depth = simulateMaxJumps(r, c, j.toRow, j.toCol, j.eatR, j.eatCol);
+                            if (depth > maximumPossibleJumps) maximumPossibleJumps = depth;
+                            allJumpsFound.push({ row: r, col: c, jumpMove: j, maxDepth: depth });
+                        });
+                    }
+                }
+            }
+        }
+        if (allJumpsFound.length > 0) {
+            allJumpsFound.forEach(item => {
+                if (item.maxDepth === maximumPossibleJumps) {
+                    let existing = forceJumpsAvailable.find(f => f.row === item.row && f.col === item.col);
+                    if (existing) existing.jumps.push(item.jumpMove);
+                    else forceJumpsAvailable.push({ row: item.row, col: item.col, jumps: [item.jumpMove] });
+                }
+            });
+        }
+    }
+
+    function simulateMaxJumps(startR, startC, toR, toC, eatR, eatCol) {
+        let originalPiece = boardState[startR][startC];
+        let targetPiece = boardState[eatR][eatCol];
+        boardState[startR][startC] = null;
+        boardState[eatR][eatCol] = null;
+        let isKing = originalPiece.endsWith('K');
+        let simulatedPiece = originalPiece;
+        if (!isKing && turn === 'R' && toR === 0) simulatedPiece = 'RK';
+        if (!isKing && turn === 'B' && toR === 7) simulatedPiece = 'BK';
+        boardState[toR][toC] = simulatedPiece;
+        let nextJumps = [];
+        if (!(simulatedPiece !== originalPiece && !isKing)) nextJumps = getPieceJumpsOnly(toR, toC);
+        let maxSubJumps = 0;
+        if (nextJumps.length > 0) {
+            nextJumps.forEach(nj => {
+                let subDepth = simulateMaxJumps(toR, toC, nj.toRow, nj.toCol, nj.eatR, nj.eatCol);
+                if (subDepth > maxSubJumps) maxSubJumps = subDepth;
+            });
+        }
+        boardState[toR][toC] = null;
+        boardState[startR][startC] = originalPiece;
+        boardState[eatR][eatCol] = targetPiece;
+        return 1 + maxSubJumps;
+    }
+
+    function getPieceJumpsOnly(row, col) {
+        const piece = boardState[row][col];
+        if(!piece) return [];
+        const isKing = piece.endsWith('K');
+        const jumps = [];
+        const dirs = [{r:-1, c:-1}, {r:-1, c:1}, {r:1, c:-1}, {r:1, c:1}];
+
+        if (isKing) {
+            dirs.forEach(dir => {
+                let currR = row + dir.r; let currC = col + dir.c;
+                let enemy = null;
+                while (currR >= 0 && currR < 8 && currC >= 0 && currC < 8) {
+                    const p = boardState[currR][currC];
+                    if (!enemy) { if (p !== null) { if (!p.startsWith(turn)) enemy = { r: currR, c: currC }; else break; } }
+                    else { if (p === null) jumps.push({ toRow: currR, toCol: currC, type: 'jump', eatR: enemy.r, eatCol: enemy.c }); else break; }
+                    currR += dir.r; currC += dir.c;
+                }
+            });
+        } else {
+            const allowedDirs = (turn === 'R') ? [{r:-1, c:-1}, {r:-1, c:1}] : [{r:1, c:-1}, {r:1, c:1}];
+            allowedDirs.forEach(dir => {
+                const eR = row + dir.r; const eC = col + dir.c;
+                const jR = row + (dir.r * 2); const jC = col + (dir.c * 2);
+                if (jR >= 0 && jR < 8 && jC >= 0 && jC < 8) {
+                    const enemy = boardState[eR][eC];
+                    const target = boardState[jR][jC];
+                    if (enemy && !enemy.startsWith(turn) && target === null) jumps.push({ toRow: jR, toCol: jC, type: 'jump', eatR: eR, eatCol: eC });
+                }
+            });
+        }
+        return jumps;
+    }
+
+    function renderBoard() {
+        boardElement.innerHTML = '';
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const square = document.createElement('div');
+                square.className = `square ${(r + c) % 2 === 0 ? 'dark' : 'light'}`;
+                if (validMoves.some(m => m.toRow === r && m.toCol === c)) square.classList.add('suggested');
+                const pieceType = boardState[r][c];
+                if (pieceType) {
+                    const piece = document.createElement('div');
+                    piece.className = `piece ${pieceType.startsWith('R') ? 'red-piece' : 'black-piece'}`;
+                    if (pieceType.endsWith('K')) piece.innerHTML = '👑';
+                    if (selectedPiece && selectedPiece.row === r && selectedPiece.col === c) piece.classList.add('selected');
+                    piece.onclick = (e) => { e.stopPropagation(); handlePieceClick(r, c); };
+                    square.appendChild(piece);
+                }
+                square.onclick = () => handleSquareClick(r, c);
+                boardElement.appendChild(square);
+            }
+        }
+    }
+
+    function handlePieceClick(row, col) {
+        if (!roomId || myColor !== turn) return; // အွန်လိုင်းမှာ ကိုယ့်အလှည့်မဟုတ်ရင် နှိပ်မရပါ
+        if (isMultiJumping) return; 
+        if (!boardState[row][col].startsWith(turn)) return;
+        
+        if (forceJumpsAvailable.length > 0) {
+            const found = forceJumpsAvailable.find(f => f.row === row && f.col === col);
+            if (!found) { alert(`⚠️ စားနိုင်သောအကွက်ကို မဖြစ်မနေရွေးရမည်!`); return; }
+            validMoves = found.jumps;
+        } else { validMoves = getPieceNormalMoves(row, col); }
+        selectedPiece = { row, col };
+        renderBoard();
+    }
+
+    function getPieceNormalMoves(row, col) {
+        const piece = boardState[row][col];
+        const isKing = piece.endsWith('K');
+        const moves = [];
+        const dirs = [{r:-1, c:-1}, {r:-1, c:1}, {r:1, c:-1}, {r:1, c:1}];
+        if (isKing) {
+            dirs.forEach(dir => {
+                let currR = row + dir.r; let currC = col + dir.c;
+                // variable spelling bug fixed here (currC >= 0 && currC < 8)
+                while (currR >= 0 && currR < 8 && currC >= 0 && currC < 8) {
+                    if (boardState[currR][currC] === null) moves.push({ toRow: currR, toCol: currC, type: 'move' }); else break;
+                    currR += dir.r
