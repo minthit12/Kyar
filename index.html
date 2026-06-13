@@ -13,14 +13,21 @@
         body { font-family: sans-serif; background: #1a252f; color: white; text-align: center; margin: 0; padding: 5px; user-select: none; }
         h2 { margin: 5px 0; font-size: 16px; }
         
-        /* Lobby UI Panel - စာတန်းအကွက်ကို ကျဉ်းကျဉ်းလေး ပြင်ဆင်ထားသည့် နေရာမှန် */
+        /* Lobby UI Panel */
         .lobby-panel { background: #2c3e50; padding: 6px 10px; border-radius: 6px; max-width: 340px; margin: 4px auto; border: 1px solid #34495e; font-size: 12px; }
         .lobby-panel h3 { margin: 0 0 4px 0; font-size: 13px; display: inline-block; }
         .lobby-btn { background: #2980b9; color: white; border: none; padding: 6px 12px; margin: 2px; font-size: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .lobby-btn:hover { background: #3498db; }
         .lobby-input { padding: 5px; font-size: 12px; border-radius: 4px; border: 1px solid #ccc; width: 90px; text-align: center; color: black; }
         
-        .status-box { background: rgba(0,0,0,0.4); padding: 6px 12px; border-radius: 4px; display: inline-block; margin-bottom: 8px; font-weight: bold; font-size: 13px; border: 1px solid #34495e; }
+        /* Status & Timer UI */
+        .status-container { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-bottom: 8px; }
+        .status-box { background: rgba(0,0,0,0.4); padding: 6px 12px; border-radius: 4px; display: inline-block; font-weight: bold; font-size: 13px; border: 1px solid #34495e; }
+        .timer-box { font-size: 14px; font-weight: bold; background: #27ae60; padding: 4px 10px; border-radius: 4px; border: 1px solid #2ecc71; display: none; }
+        .timer-urgent { background: #c0392b !important; border-color: #e74c3c !important; animation: blink 1s infinite; }
+        
+        @keyframes blink { 50% { opacity: 0.6; } }
+
         .board-container { width: 100%; max-width: 360px; margin: auto; }
         .board { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); border: 4px solid #2c3e50; background: #fbeee0; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }
         .square { width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
@@ -46,7 +53,10 @@
         <button class="lobby-btn" style="background:#e67e22;" onclick="joinRoom()">🚪 ဝင်ဆော့မည်</button>
     </div>
 
-    <div class="status-box" id="statusText">ကျေးဇူးပြု၍ Room ဆောက်ပါ သို့မဟုတ် ဝင်ဆော့ပါ</div>
+    <div class="status-container">
+        <div class="status-box" id="statusText">ကျေးဇူးပြု၍ Room ဆောက်ပါ သို့မဟုတ် ဝင်ဆော့ပါ</div>
+        <div class="timer-box" id="timerDisplay">⏱ ကျန်ရှိချိန် - 15 စက္ကန့်</div>
+    </div>
 
     <div class="board-container">
         <div class="board" id="gameBoard"></div>
@@ -55,17 +65,54 @@
     <button class="btn-restart" id="restartBtn" onclick="resetOnlineGame()" style="display:none;">🔄 ပွဲသစ်ပြန်စမည်</button>
 
 <script>
-    // Firebase Setup
+    // Firebase Setup (အစ်ကို့ Database URL ကို ကွက်တိ ထည့်ပေးထားပါတယ်)
     const firebaseConfig = {
         databaseURL: "https://myhomelist-6550a-default-rtdb.firebaseio.com/" 
     };
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
 
+    // Audio Elements (ကွန်ရက်မလိုဘဲ မြန်မြန်မြည်အောင် Web Audio API ဖြင့် ဆောက်ထားပါသည်)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    
+    function playSound(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'move') {
+            // အကွက်ရွှေ့သံ ခပ်တိုတို (ဒေါက်)
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.08);
+            gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+        } else if (type === 'jump') {
+            // ကျားစားသံ ခပ်ပြင်းပြင်း (တောက်)
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(250, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        } else if (type === 'tick') {
+            // စက္ကန့်ပြည့်ခါနီး သတိပေးသံတိုလေး
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.04);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.04);
+        }
+    }
+
     const boardElement = document.getElementById('gameBoard');
     const statusText = document.getElementById('statusText');
     const lobbyPanel = document.getElementById('lobbyPanel');
     const restartBtn = document.getElementById('restartBtn');
+    const timerDisplay = document.getElementById('timerDisplay');
     
     let boardState = [];
     let turn = 'R'; 
@@ -77,6 +124,11 @@
 
     let roomId = null;
     let myColor = null; 
+    
+    // Timer Variables
+    let timerInterval = null;
+    let localSecondsLeft = 15;
+    let lastTurnServerTime = 0;
 
     function hostRoom() {
         roomId = Math.floor(1000 + Math.random() * 9000); 
@@ -88,11 +140,12 @@
             boardState: JSON.stringify(boardState),
             turn: 'R',
             status: 'waiting',
-            restartRequested: false
+            restartRequested: false,
+            lastTurnTime: firebase.database.ServerValue.TIMESTAMP
         }).then(() => {
             listenToRoom();
         }).catch(err => {
-            alert("Room ဆောက်မရပါ။");
+            alert("Room ဆောက်မရပါ။ VPN ပိတ်/ဖွင့် ပြန်စစ်ပေးပါဦးဗျာ။");
         });
     }
 
@@ -104,7 +157,10 @@
 
         database.ref(`rooms/${roomId}`).once('value').then((snapshot) => {
             if(snapshot.exists()) {
-                database.ref(`rooms/${roomId}`).update({ status: 'playing' }).then(() => {
+                database.ref(`rooms/${roomId}`).update({ 
+                    status: 'playing',
+                    lastTurnTime: firebase.database.ServerValue.TIMESTAMP
+                }).then(() => {
                     lobbyPanel.style.display = 'none';
                     restartBtn.style.display = 'inline-block';
                     listenToRoom();
@@ -122,15 +178,20 @@
             const data = snapshot.val();
             if(!data) return;
 
+            const oldTurn = turn;
             boardState = JSON.parse(data.boardState);
             turn = data.turn;
+            lastTurnServerTime = data.lastTurnTime || Date.now();
             
             if(data.status === 'waiting') {
                 statusText.innerText = "⏳ ကစားဖော်ကို စောင့်ဆိုင်းနေပါသည်...";
+                timerDisplay.style.display = 'none';
             } else {
                 lobbyPanel.style.display = 'none';
                 restartBtn.style.display = 'inline-block';
+                timerDisplay.style.display = 'inline-block';
                 updateStatusText();
+                startLocalTimer();
             }
 
             if(data.restartRequested === true) {
@@ -148,11 +209,60 @@
         });
     }
 
-    function syncDataToFirebase() {
+    // Timer Sync Logic
+    function startLocalTimer() {
+        clearInterval(timerInterval);
+        
+        // Server ရဲ့ လက်ရှိအချိန်ကို တွက်ချက်ခြင်း
+        database.ref('.info/serverTimeOffset').once('value').then((offsetSnap) => {
+            const offset = offsetSnap.val() || 0;
+            
+            timerInterval = setInterval(() => {
+                const currentServerTime = Date.now() + offset;
+                const timePassedSeconds = Math.floor((currentServerTime - lastTurnServerTime) / 1000);
+                localSecondsLeft = 15 - timePassedSeconds;
+
+                if (localSecondsLeft <= 0) {
+                    localSecondsLeft = 0;
+                    clearInterval(timerInterval);
+                    handleTimeOut();
+                }
+
+                // Timer စာသားနှင့် အလှဆင်ခြင်း
+                timerDisplay.innerText = `⏱ ကျန်ရှိချိန် - ${localSecondsLeft} စက္ကန့်`;
+                if (localSecondsLeft <= 5) {
+                    timerDisplay.classList.add('timer-urgent');
+                    if(localSecondsLeft > 0) playSound('tick'); // စက္ကန့်ပြည့်ခါနီး သတိပေးသံ
+                } else {
+                    timerDisplay.classList.remove('timer-urgent');
+                }
+            }, 1000);
+        });
+    }
+
+    function handleTimeOut() {
+        // အချိန်ကုန်သွားလျှင် အလှည့်ကို အလိုအလျောက် ပြောင်းပစ်ခြင်း
+        if (myColor === turn) { 
+            turn = (turn === 'R') ? 'B' : 'R';
+            selectedPiece = null;
+            validMoves = [];
+            isMultiJumping = false;
+            
+            database.ref(`rooms/${roomId}`).update({
+                turn: turn,
+                lastTurnTime: firebase.database.ServerValue.TIMESTAMP
+            });
+        }
+    }
+
+    function syncDataToFirebase(actionType) {
         if(!roomId) return;
         database.ref(`rooms/${roomId}`).update({
             boardState: JSON.stringify(boardState),
-            turn: turn
+            turn: turn,
+            lastTurnTime: firebase.database.ServerValue.TIMESTAMP
+        }).then(() => {
+            if(actionType) playSound(actionType); // အောင်မြင်မှ အသံမြည်စေမည်
         });
     }
 
@@ -162,7 +272,8 @@
         database.ref(`rooms/${roomId}`).update({
             boardState: JSON.stringify(boardState),
             turn: 'R',
-            restartRequested: true
+            restartRequested: true,
+            lastTurnTime: firebase.database.ServerValue.TIMESTAMP
         });
     }
 
@@ -220,7 +331,7 @@
         if (nextJumps.length > 0) {
             nextJumps.forEach(nj => {
                 let subDepth = simulateMaxJumps(toR, toC, nj.toRow, nj.toCol, nj.eatR, nj.eatCol);
-                if (subDepth > maxSubJumps) maxSubJumps = subDepth;
+                if (subDepth > maxSubSubJumps) maxSubJumps = subDepth;
             });
         }
         boardState[toR][toC] = null;
@@ -329,8 +440,13 @@
             let pieceType = boardState[selectedPiece.row][selectedPiece.col];
             boardState[row][col] = pieceType;
             boardState[selectedPiece.row][selectedPiece.col] = null;
+            
+            let currentAction = 'move';
+
             if (move.type === 'jump') {
                 boardState[move.eatR][move.eatCol] = null;
+                currentAction = 'jump';
+
                 if (turn === 'R' && row === 0 && pieceType === 'R') { boardState[row][col] = 'RK'; pieceType = 'RK'; }
                 if (turn === 'B' && row === 7 && pieceType === 'B') { boardState[row][col] = 'BK'; pieceType = 'BK'; }
                 const nextJumps = getPieceJumpsOnly(row, col);
@@ -339,7 +455,7 @@
                     selectedPiece = { row, col }; 
                     validMoves = nextJumps; 
                     renderBoard(); 
-                    syncDataToFirebase(); 
+                    syncDataToFirebase('jump'); 
                     return; 
                 }
             }
@@ -351,7 +467,7 @@
             validMoves = [];
             
             updateStatusText(); 
-            syncDataToFirebase(); 
+            syncDataToFirebase(currentAction); 
         } else { if (!isMultiJumping) { selectedPiece = null; validMoves = []; } }
         renderBoard();
     }
@@ -369,8 +485,8 @@
     function checkGameOver() {
         let rCount = 0, bCount = 0;
         for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) { if (boardState[r][c]?.startsWith('R')) rCount++; if (boardState[r][c]?.startsWith('B')) bCount++; } }
-        if (rCount === 0 && bCount > 0) { alert("🎉 ပွဲပြီးပါပြီ။ အနက်ရောင် အနိုင်ရရှိပါသည်။"); }
-        else if (bCount === 0 && rCount > 0) { alert("🎉 ပွဲပြီးပါပြီ။ အနီရောင် အနိုင်ရရှိပါသည်။"); }
+        if (rCount === 0 && bCount > 0) { clearInterval(timerInterval); alert("🎉 ပွဲပြီးပါပြီ။ အနက်ရောင် အနိုင်ရရှိပါသည်။"); }
+        else if (bCount === 0 && rCount > 0) { clearInterval(timerInterval); alert("🎉 ပွဲပြီးပါပြီ။ အနီရောင် အနိုင်ရရှိပါသည်။"); }
     }
 
     initBoardStateOnly();
