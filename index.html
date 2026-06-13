@@ -65,46 +65,62 @@
     <button class="btn-restart" id="restartBtn" onclick="resetOnlineGame()" style="display:none;">🔄 ပွဲသစ်ပြန်စမည်</button>
 
 <script>
-    // Firebase Setup (အစ်ကို့ Database URL ကို ကွက်တိ ထည့်ပေးထားပါတယ်)
+    // Firebase Setup
     const firebaseConfig = {
         databaseURL: "https://myhomelist-6550a-default-rtdb.firebaseio.com/" 
     };
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
 
-    // Audio Elements (ကွန်ရက်မလိုဘဲ မြန်မြန်မြည်အောင် Web Audio API ဖြင့် ဆောက်ထားပါသည်)
+    // Web Audio API စနစ်အသစ် (ကျယ်ကျယ်လောင်လောင်နှင့် ပီပီသပ်သပ် မြည်စေရန် ပြင်ထားပါသည်)
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     
     function playSound(type) {
         if (audioCtx.state === 'suspended') audioCtx.resume();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
 
-        if (type === 'move') {
-            // အကွက်ရွှေ့သံ ခပ်တိုတို (ဒေါက်)
+        if (type === 'myTurn') {
+            // ကိုယ့်အလှည့်ရောက်သံ - "တီတီလင်း... တီတီလင်း" (ကျယ်ပြီး အသံရှည်သည်)
+            const osc1 = audioCtx.createOscillator();
+            const osc2 = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc1.type = 'sine'; osc1.frequency.setValueAtTime(587.33, now); // D5
+            osc2.type = 'sine'; osc2.frequency.setValueAtTime(880.00, now); // A5
+            
+            gain.gain.setValueAtTime(0.0, now);
+            gain.gain.linearRampToValueAtTime(0.8, now + 0.05);
+            gain.gain.setValueAtTime(0.8, now + 0.15);
+            gain.gain.linearRampToValueAtTime(0.0, now + 0.25);
+            
+            gain.gain.linearRampToValueAtTime(0.8, now + 0.35);
+            gain.gain.setValueAtTime(0.8, now + 0.45);
+            gain.gain.linearRampToValueAtTime(0.0, now + 0.60);
+            
+            osc1.connect(gain); osc2.connect(gain); gain.connect(audioCtx.destination);
+            osc1.start(now); osc1.stop(now + 0.60);
+            osc2.start(now); osc2.stop(now + 0.60);
+        } else if (type === 'move' || type === 'jump') {
+            // တစ်ဖက်လူရွှေ့သံ သို့မဟုတ် ကျားစားသံ - "ဒေါက်" (ကျယ်ကျယ်နှင့် ပြတ်ပြတ်)
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
             osc.type = 'triangle';
-            osc.frequency.setValueAtTime(120, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.08);
-            gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.08);
-        } else if (type === 'jump') {
-            // ကျားစားသံ ခပ်ပြင်းပြင်း (တောက်)
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(250, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+            osc.frequency.setValueAtTime(180, now);
+            osc.frequency.exponentialRampToValueAtTime(50, now + 0.12);
+            gain.gain.setValueAtTime(1.0, now); // အမြင့်ဆုံးအသံအကျယ်
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now); osc.stop(now + 0.12);
         } else if (type === 'tick') {
-            // စက္ကန့်ပြည့်ခါနီး သတိပေးသံတိုလေး
+            // အချိန်ကုန်ခါနီး သတိပေးသံ - "ဘစ်... ဘစ်" (ခပ်စူးစူး)
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
             osc.type = 'square';
-            osc.frequency.setValueAtTime(600, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.04);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.04);
+            osc.frequency.setValueAtTime(800, now);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(now); osc.stop(now + 0.05);
         }
     }
 
@@ -125,10 +141,10 @@
     let roomId = null;
     let myColor = null; 
     
-    // Timer Variables
     let timerInterval = null;
     let localSecondsLeft = 15;
     let lastTurnServerTime = 0;
+    let oldTurnState = ''; // အလှည့်ပြောင်းလဲမှုကို စောင့်ကြည့်ရန်
 
     function hostRoom() {
         roomId = Math.floor(1000 + Math.random() * 9000); 
@@ -145,7 +161,7 @@
         }).then(() => {
             listenToRoom();
         }).catch(err => {
-            alert("Room ဆောက်မရပါ။ VPN ပိတ်/ဖွင့် ပြန်စစ်ပေးပါဦးဗျာ။");
+            alert("Room ဆောက်မရပါ။ VPN ပြန်စစ်ပေးပါဦးဗျာ။");
         });
     }
 
@@ -178,11 +194,23 @@
             const data = snapshot.val();
             if(!data) return;
 
-            const oldTurn = turn;
             boardState = JSON.parse(data.boardState);
-            turn = data.turn;
+            const serverTurn = data.turn;
             lastTurnServerTime = data.lastTurnTime || Date.now();
             
+            // ကိုယ့်အလှည့်အသစ်ရောက်လာလျှင် ကျယ်ကျယ်လောင်လောင် မြည်စေရန် စစ်ဆေးခြင်း
+            if (serverTurn !== oldTurnState) {
+                turn = serverTurn;
+                oldTurnState = serverTurn;
+                if (turn === myColor && data.status === 'playing') {
+                    playSound('myTurn'); 
+                } else if (data.status === 'playing') {
+                    playSound('move'); 
+                }
+            }
+
+            turn = serverTurn;
+
             if(data.status === 'waiting') {
                 statusText.innerText = "⏳ ကစားဖော်ကို စောင့်ဆိုင်းနေပါသည်...";
                 timerDisplay.style.display = 'none';
@@ -209,11 +237,8 @@
         });
     }
 
-    // Timer Sync Logic
     function startLocalTimer() {
         clearInterval(timerInterval);
-        
-        // Server ရဲ့ လက်ရှိအချိန်ကို တွက်ချက်ခြင်း
         database.ref('.info/serverTimeOffset').once('value').then((offsetSnap) => {
             const offset = offsetSnap.val() || 0;
             
@@ -228,11 +253,10 @@
                     handleTimeOut();
                 }
 
-                // Timer စာသားနှင့် အလှဆင်ခြင်း
                 timerDisplay.innerText = `⏱ ကျန်ရှိချိန် - ${localSecondsLeft} စက္ကန့်`;
                 if (localSecondsLeft <= 5) {
                     timerDisplay.classList.add('timer-urgent');
-                    if(localSecondsLeft > 0) playSound('tick'); // စက္ကန့်ပြည့်ခါနီး သတိပေးသံ
+                    if(localSecondsLeft > 0) playSound('tick');
                 } else {
                     timerDisplay.classList.remove('timer-urgent');
                 }
@@ -240,18 +264,66 @@
         });
     }
 
+    // 🤖 အချိန်ကုန်လျှင် အလိုအလျောက် ရွှေ့ပေးမည့်စနစ် (Auto-Move Engine)
     function handleTimeOut() {
-        // အချိန်ကုန်သွားလျှင် အလှည့်ကို အလိုအလျောက် ပြောင်းပစ်ခြင်း
-        if (myColor === turn) { 
+        if (myColor !== turn) return; // မိမိအလှည့်ဖြစ်မှသာ မိမိဖုန်းကနေ ရွှေ့မည်။
+
+        let finalMove = null;
+        let fromPiece = null;
+
+        // အကယ်၍ မဖြစ်မနေ စားရမယ့် အကွက်ရှိနေလျှင်
+        if (forceJumpsAvailable.length > 0) {
+            const luckyChoice = forceJumpsAvailable[Math.floor(Math.random() * forceJumpsAvailable.length)];
+            fromPiece = { row: luckyChoice.row, col: luckyChoice.col };
+            finalMove = luckyChoice.jumps[Math.floor(Math.random() * luckyChoice.jumps.length)];
+        } else {
+            // ရိုးရိုးရွှေ့ကွက်များထဲမှ ရှာခြင်း
+            let allNormalMoves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (boardState[r][c] && boardState[r][c].startsWith(turn)) {
+                        let nMoves = getPieceNormalMoves(r, c);
+                        nMoves.forEach(m => {
+                            allNormalMoves.push({ from: {row: r, col: c}, move: m });
+                        });
+                    }
+                }
+            }
+            if (allNormalMoves.length > 0) {
+                let choice = allNormalMoves[Math.floor(Math.random() * allNormalMoves.length)];
+                fromPiece = choice.from;
+                finalMove = choice.move;
+            }
+        }
+
+        // ရွှေ့ကွက်တွေ့လျှင် အလိုအလျောက် ရွှေ့ပြီး Firebase သို့ တင်မည်
+        if (finalMove && fromPiece) {
+            let pieceType = boardState[fromPiece.row][fromPiece.col];
+            boardState[finalMove.toRow][finalMove.toCol] = pieceType;
+            boardState[fromPiece.row][fromPiece.col] = null;
+            
+            let action = 'move';
+            if (finalMove.type === 'jump') {
+                boardState[finalMove.eatR][finalMove.eatCol] = null;
+                action = 'jump';
+            }
+
+            if (turn === 'R' && finalMove.toRow === 0 && pieceType === 'R') boardState[finalMove.toRow][finalMove.toCol] = 'RK';
+            if (turn === 'B' && finalMove.toRow === 7 && pieceType === 'B') boardState[finalMove.toRow][finalMove.toCol] = 'BK';
+
+            isMultiJumping = false;
+            turn = (turn === 'R') ? 'B' : 'R';
+            selectedPiece = null;
+            validMoves = [];
+
+            syncDataToFirebase(action);
+        } else {
+            // လုံးဝရွှေ့ကွက်မရှိတော့လျှင် အလှည့်ကို ဒီတိုင်း ပြောင်းပေးလိုက်မည်
             turn = (turn === 'R') ? 'B' : 'R';
             selectedPiece = null;
             validMoves = [];
             isMultiJumping = false;
-            
-            database.ref(`rooms/${roomId}`).update({
-                turn: turn,
-                lastTurnTime: firebase.database.ServerValue.TIMESTAMP
-            });
+            syncDataToFirebase('move');
         }
     }
 
@@ -261,8 +333,6 @@
             boardState: JSON.stringify(boardState),
             turn: turn,
             lastTurnTime: firebase.database.ServerValue.TIMESTAMP
-        }).then(() => {
-            if(actionType) playSound(actionType); // အောင်မြင်မှ အသံမြည်စေမည်
         });
     }
 
@@ -331,7 +401,7 @@
         if (nextJumps.length > 0) {
             nextJumps.forEach(nj => {
                 let subDepth = simulateMaxJumps(toR, toC, nj.toRow, nj.toCol, nj.eatR, nj.eatCol);
-                if (subDepth > maxSubJumps) maxSubJumps = subDepth;
+                if (subDepth > maxSubJumps) maxSubJumps = subDepth; // ပြင်ဆင်ပြီးသား ကွက်တိမှန်ကန်သောလိုင်း
             });
         }
         boardState[toR][toC] = null;
@@ -411,6 +481,7 @@
 
     function getPieceNormalMoves(row, col) {
         const piece = boardState[row][col];
+        if (!piece) return [];
         const isKing = piece.endsWith('K');
         const moves = [];
         const dirs = [{r:-1, c:-1}, {r:-1, c:1}, {r:1, c:-1}, {r:1, c:1}];
@@ -474,11 +545,7 @@
 
     function updateStatusText() { 
         let text = (turn === 'R' ? "🔴 အနီရောင်" : "⚫ အနက်ရောင်") + " အလှည့်";
-        if(myColor === turn) {
-            text += " (သင့်အလှည့်)";
-        } else {
-            text += " (တစ်ဖက်လူအလှည့်)";
-        }
+        if(myColor === turn) { text += " (သင့်အလှည့်)"; } else { text += " (တစ်ဖက်လူအလှည့်)"; }
         statusText.innerText = text; 
     }
     
