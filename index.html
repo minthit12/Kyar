@@ -331,7 +331,7 @@
         if (nextJumps.length > 0) {
             nextJumps.forEach(nj => {
                 let subDepth = simulateMaxJumps(toR, toC, nj.toRow, nj.toCol, nj.eatR, nj.eatCol);
-                if (subDepth > maxSubSubJumps) maxSubJumps = subDepth;
+                if (subDepth > maxSubJumps) maxSubJumps = subDepth;
             });
         }
         boardState[toR][toC] = null;
